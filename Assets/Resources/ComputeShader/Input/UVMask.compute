@@ -1,0 +1,184 @@
+#pragma kernel CalcBarycentric;
+#pragma kernel GenMask;
+
+struct BarycentricData
+{
+    uint id0, id1, id2;
+    float b0, b1, b2;
+};
+
+StructuredBuffer<float2> TargetUVs;
+StructuredBuffer<uint> TargetTriangles;
+StructuredBuffer<uint> OccluderTriangles;
+StructuredBuffer<float3> TargetWorldVertices;
+StructuredBuffer<float3> OccluderWorldVertices;
+// RWStructuredBuffer<BarycentricData> BarycentricDataPixels;
+RWTexture2D<float4> _BarycentricIDTextureWrite;
+RWTexture2D<float4> _BarycentricWeightTextureWrite;
+Texture2D<float4> _BarycentricIDTextureRead;
+Texture2D<float4> _BarycentricWeightTextureRead;
+Texture2D<float4> KeepAreaTexture;
+RWTexture2D<float4> UVMask;
+
+uint _TexSize;
+uint _NumTargetTriangles;
+uint _NumOccluderTriangles;
+float3 _ViewPos;
+
+// 共有メモリ
+// 現在使用しているOccluderのポリゴン数は30程度だが、
+// 1グループ64スレッドなので、1ループでコピー可能な64にしておく
+#define MAX_OCCLUDER_TRIS 64
+groupshared float3 shared_v0[MAX_OCCLUDER_TRIS];
+groupshared float3 shared_v1[MAX_OCCLUDER_TRIS];
+groupshared float3 shared_v2[MAX_OCCLUDER_TRIS];
+
+// 2Dの外積を利用してバリセントリック座標を計算する関数
+float3 CalculateBarycentric(float2 p, float2 a, float2 b, float2 c)
+{
+    float2 v0 = b - a, v1 = c - a, v2 = p - a;
+    float den = v0.x * v1.y - v1.x * v0.y;
+    float v = (v2.x * v1.y - v1.x * v2.y) / den;
+    float w = (v0.x * v2.y - v2.x * v0.y) / den;
+    float u = 1.0f - v - w;
+    return float3(u, v, w);
+}
+
+[numthreads(8, 8, 1)]
+void CalcBarycentric (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TexSize || id.y >= _TexSize) return;
+
+    // 現在の画素のUV座標 (0.0 ~ 1.0)
+    float2 pixelUV = (float2(id.xy) + 0.5f) / (float)_TexSize;
+
+    BarycentricData result;
+    result.id0 = result.id1 = result.id2 = 0;
+    result.b0 = result.b1 = result.b2 = 0;
+
+    // 初期化時に一度実行するだけなので、時間はかかるが簡単のため全三角形をチェックする
+    for (uint i = 0; i < _NumTargetTriangles; i++)
+    {
+        uint i0 = TargetTriangles[i * 3 + 0];
+        uint i1 = TargetTriangles[i * 3 + 1];
+        uint i2 = TargetTriangles[i * 3 + 2];
+
+        float2 uv0 = TargetUVs[i0];
+        float2 uv1 = TargetUVs[i1];
+        float2 uv2 = TargetUVs[i2];
+
+        // 点が三角形の内側にあるか判定
+        float3 b = CalculateBarycentric(pixelUV, uv0, uv1, uv2);
+
+        if (b.x >= 0 && b.y >= 0 && b.z >= 0)
+        {
+            result.id0 = i0;
+            result.id1 = i1;
+            result.id2 = i2;
+            result.b0 = b.x;
+            result.b1 = b.y;
+            result.b2 = b.z;
+            break; // 最初に見つかった三角形を採用
+        }
+    }
+
+    // BarycentricDataPixels[id.y * _TexSize + id.x] = result;
+    _BarycentricIDTextureWrite[id.xy] = float4((float)result.id0, (float)result.id1, (float)result.id2, 0);
+    _BarycentricWeightTextureWrite[id.xy] = float4(result.b0, result.b1, result.b2, 0);
+}
+
+// レイと三角形の交差判定
+bool RayTriangleIntersect(float3 rayOrigin, float3 rayDir, float3 v0, float3 v1, float3 v2)
+{
+    float3 edge1 = v1 - v0;
+    float3 edge2 = v2 - v0;
+    float3 pvec = cross(rayDir, edge2);
+    float det = dot(edge1, pvec);
+
+    if (abs(det) < 0.000001f) return false;
+
+    float invDet = 1.0f / det;
+    float3 tvec = rayOrigin - v0;
+    float u = dot(tvec, pvec) * invDet;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    float3 qvec = cross(tvec, edge1);
+    float v = dot(rayDir, qvec) * invDet;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float t = dot(edge2, qvec) * invDet;
+    return t > 0.0001f && t < 1.0f; // 視点とTargetの間にあるか
+}
+
+[numthreads(8, 8, 1)]
+void GenMask (uint3 id : SV_DispatchThreadID, uint groupIndex : SV_GroupIndex)
+{
+    // 共有メモリへデータをロード
+    // スレッド数64のため、ポリゴン数が64を超える場合はループで全てのデータをロードする
+    for (uint i = groupIndex; i < _NumOccluderTriangles && i < MAX_OCCLUDER_TRIS; i += 64)
+    {
+        uint i0 = OccluderTriangles[i * 3 + 0];
+        uint i1 = OccluderTriangles[i * 3 + 1];
+        uint i2 = OccluderTriangles[i * 3 + 2];
+
+        shared_v0[i] = OccluderWorldVertices[i0];
+        shared_v1[i] = OccluderWorldVertices[i1];
+        shared_v2[i] = OccluderWorldVertices[i2];
+    }
+    
+    // 全スレッドがロード完了するまで待機する
+    GroupMemoryBarrierWithGroupSync();
+
+
+    if (id.x >= _TexSize || id.y >= _TexSize) return;
+
+    uint pixelIdx = id.y * _TexSize + id.x;
+    float4 bID = _BarycentricIDTextureRead[id.xy];
+    float4 bWeight = _BarycentricWeightTextureRead[id.xy];
+    BarycentricData data;
+    data.id0 = (int)bID.x;
+    data.id1 = (int)bID.y;
+    data.id2 = (int)bID.z;
+    data.b0 = bWeight.x;
+    data.b1 = bWeight.y;
+    data.b2 = bWeight.z;
+
+    // ポリゴンが存在しないピクセルは、マスクを黒にして即終了する
+    if (data.b0 == 0 && data.b1 == 0 && data.b2 == 0)
+    {
+        UVMask[id.xy] = float4(0, 0, 0, 0);
+        return;
+    }
+
+    // KeepAreaTextureを参照し、KeepArea範囲内なら白を塗って終了
+    // KeepAreaTextureを雑に作ってもいいように、ポリゴンの存在判定の後に実行する
+    if (KeepAreaTexture[id.xy].r > 0.5)
+    {
+        UVMask[id.xy] = float4(1, 1, 1, 1);
+        return;   
+    }
+
+    // Targetの現在のワールド座標を復元
+    float3 targetPos = TargetWorldVertices[data.id0] * data.b0 +
+                       TargetWorldVertices[data.id1] * data.b1 +
+                       TargetWorldVertices[data.id2] * data.b2;
+
+    // 視点からTargetへのレイを定義
+    float3 rayDir = targetPos - _ViewPos;
+
+    bool isOccluded = false;
+
+    // Occluderの全三角形と判定
+    // ポリゴン数は10～20程度なので全探索で問題なし
+    uint numSharedTris = min(_NumOccluderTriangles, (uint)MAX_OCCLUDER_TRIS);
+    for (uint j = 0; j < numSharedTris; j++)
+    {
+        if (RayTriangleIntersect(_ViewPos, rayDir, shared_v0[j], shared_v1[j], shared_v2[j]))
+        {
+            isOccluded = true;
+            break;
+        }
+    }
+
+    UVMask[id.xy] = isOccluded ? float4(1, 1, 1, 1) : float4(0, 0, 0, 0);
+}

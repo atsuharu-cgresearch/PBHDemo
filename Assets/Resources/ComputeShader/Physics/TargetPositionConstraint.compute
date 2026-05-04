@@ -1,0 +1,52 @@
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<float2> _LocalPositions;
+StructuredBuffer<int> _References;
+StructuredBuffer<float4> _Offsets;
+
+uint _NumParticles;
+float _K;
+
+float2 LocalToWorld(float2 pLocal, float2 pos, float angle, float scale)
+{
+    float2 p = pLocal * scale;
+
+    float c = cos(angle);
+    float s = sin(angle);
+
+    float2 pRot;
+    pRot.x =  c * p.x - s * p.y;
+    pRot.y =  s * p.x + c * p.y;
+
+    return pRot + pos;
+}
+
+// パーティクルを目標の位置に移動させる（位置ベース）
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    float2 p = _Particles[id].p;
+
+    float2 localPos = _LocalPositions[id];
+
+    int reference = _References[id];
+    float4 offset = _Offsets[reference];
+
+    float2 targetPos = LocalToWorld(localPos, offset.xy, offset.z, offset.w);
+
+    float2 dir = targetPos - p;
+    float currDist = length(dir);
+
+    if (currDist < 1e-6) return;
+
+    float2 n = dir / currDist;
+
+    float2 corr = n * currDist;
+
+    _Particles[id].p += corr * _K;
+}

@@ -1,0 +1,91 @@
+#pragma kernel KInit
+#pragma kernel KJFA
+#pragma kernel kWrite
+
+// 読み取りに使用するだけだが、CPU側からは書き込み可能なRenderTextureとしてバインドしており、
+// WebGPUプラットフォームでは型の不一致でエラーになるので、こちらをRWTexture2Dにしておく
+Texture2D<float4> _InputTex;
+Texture2D<float4> _BufferRead;
+RWTexture2D<float4> _BufferWrite;
+RWTexture2D<float4> _Result;
+
+uint _TexSize;
+int _StepWidth;
+
+// 境界ピクセルを探し、座標を記録する
+[numthreads(8, 8, 1)]
+void KInit(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_TexSize || id.y >= (uint)_TexSize) return;
+
+    float4 color = _InputTex[id.xy];
+    bool isWhite = color.r > 0.5;
+    
+    // 周囲4マスを確認して境界かどうか判定
+    bool isBoundary = false;
+    int2 offsets[4] = { int2(1,0), int2(0,1), int2(-1,0), int2(0,-1) };
+    for(int i=0; i<4; i++)
+    {
+        int2 samplePos = id.xy + offsets[i];
+        if (samplePos.x < 0 || samplePos.y < 0 || samplePos.x >= (int)_TexSize || samplePos.y >= (int)_TexSize) continue;
+        float4 neighbor = _InputTex[samplePos];
+
+        // 隣のピクセルと色が違う場合
+        if ((neighbor.r > 0.5) != isWhite)
+        {
+            isBoundary = true;
+            break;
+        }
+    }
+
+    // 境界なら自分の座標、そうでなければ遠くの座標を書き込む
+    _BufferWrite[id.xy] = isBoundary ? float4(id.xy, 0, 0) : float4(-1000000, -1000000, 0, 0);
+}
+
+[numthreads(8, 8, 1)]
+void KJFA(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= (uint)_TexSize || id.y >= (uint)_TexSize) return;
+
+    float2 bestCoord = _BufferRead[id.xy].xy;
+    float bestDist = length(bestCoord - (float2)id.xy); // 境界なら0、そうでなければ大きな数
+
+    // 自分の周囲8方向、_StepWidth離れたピクセルをチェック
+    for (int y = -1; y <= 1; y++)
+    {
+        for (int x = -1; x <= 1; x++)
+        {
+            int2 samplePos = (int2)id.xy + int2(x, y) * _StepWidth;
+            if (samplePos.x < 0 || samplePos.y < 0 || samplePos.x >= (int)_TexSize || samplePos.y >= (int)_TexSize) continue;
+
+            float2 candidateCoord = _BufferRead[samplePos].xy;
+            if (candidateCoord.x < 0) continue; // 有効な座標がない場合
+
+            float dist = length(candidateCoord - (float2)id.xy);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                bestCoord = candidateCoord;
+            }
+        }
+    }
+    _BufferWrite[id.xy] = float4(bestCoord.xy, 0, 0);
+}
+
+// 座標から距離を算出し、SDF値を書き込む
+[numthreads(8, 8, 1)]
+void kWrite(uint3 id : SV_DispatchThreadID)
+{
+    // このピクセルから最も近い内側領域のピクセルまで
+    float2 seedPos = _BufferRead[id.xy].xy;
+    float2 diff = seedPos - (float2)id.xy;
+    
+    // テクスチャの端から端までを0～1とするスケールで正規化
+    float2 diffNormalized = float2(0.5, 0.5) + 0.5 * diff / (float)_TexSize;
+    
+    // 内側はBとαの値を0にしておく
+    bool isInside = _InputTex[id.xy].r > 0.5;
+    float4 finalValue = isInside ? float4(diffNormalized.xy, 0, 0) : float4(diffNormalized.xy, 1, 1);
+
+    _Result[id.xy] = finalValue;
+}

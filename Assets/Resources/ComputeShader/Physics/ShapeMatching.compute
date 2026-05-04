@@ -1,0 +1,161 @@
+#pragma kernel CS_CalcDelta
+#pragma kernel CS_ApplyDelta
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+// 1つのオブジェクトが持つ最大パーティクル数
+#define MAX_PARTICLES 128
+
+struct Cluster
+{
+    int objPOffset;
+    int objPCount;
+    int start;
+    int count;
+};
+
+struct ShapeMatchPoint
+{
+    int index;
+    float2 restPosition;
+};
+
+struct Helper
+{
+    int start;
+    int count;
+};
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<Cluster> _Clusters;
+// WebGL向けにバインドするバッファの数を4以下にしたいので、indexとrestPositionを構造体にして1つのバッファにまとめる
+StructuredBuffer<ShapeMatchPoint> _ShapeMatchPoints;
+// StructuredBuffer<int> _Indices;
+// StructuredBuffer<float2> _RestPositions;
+RWStructuredBuffer<float2> _Corrections;
+StructuredBuffer<int> _References;
+StructuredBuffer<Helper> _Helpers;
+
+uint _NumParticles;
+uint _NumConstraints;
+float _K;
+
+// パーティクルの予測位置をキャッシュする共有メモリ
+groupshared float2 shared_P[MAX_PARTICLES];
+
+// ランダムアクセスが生じるので共有メモリを使ってみたが、今回のパーティクル数の規模ではほとんど高速化にはならなかった
+// 遅くなるわけではないのでこのまま残しておく
+[numthreads(64, 1, 1)]
+void CS_CalcDelta (uint3 groupID : SV_GroupID, uint groupIndex : SV_GroupIndex, uint id : SV_DispatchThreadID)
+{
+    // このオブジェクトのパーティクル数とパーティクルの開始インデックスを取得
+    Cluster myCluster = _Clusters[id];
+    int objPOffset = myCluster.objPOffset;
+    int objPCount = myCluster.objPCount;
+    // 共有メモリに読み込み
+    // 64スレッドずつ必要な分だけループして読み込む
+    for (int localPID = groupIndex; localPID < objPCount; localPID += 64)
+    {
+        shared_P[localPID] = _Particles[objPOffset + localPID].p;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (id >= _NumConstraints) return;
+
+    int start = myCluster.start;
+    int count = myCluster.count;
+
+    // ダミーのクラスタの場合はここで終了
+    if (count <= 0) return;
+
+    // 重心の計算
+    float2 currCenter = float2(0, 0);
+
+    for (int i = 0; i < count; i++)
+    {
+        // ParticleBuffer上でのアドレスを、共有メモリ上でのアドレスに変換する
+        int globalPID = _ShapeMatchPoints[start + i].index;
+        int localPID = globalPID - objPOffset;
+
+        // 共有メモリから読み込む
+        currCenter += shared_P[localPID];
+    }
+
+    float invCount = 1.0f / (float)count;
+    currCenter *= invCount;
+
+    // 回転行列の抽出
+    float2 col0 = float2(0.0f, 0.0f); 
+    float2 col1 = float2(0.0f, 0.0f);
+
+    for (int j = 0; j < count; j++)
+    {
+        int globalPID = _ShapeMatchPoints[start + j].index;
+        int localPID = globalPID - objPOffset;
+        // 共有メモリから読み込む
+        float2 p = shared_P[localPID] - currCenter;
+        float2 q = _ShapeMatchPoints[start + j].restPosition;
+
+        // 2DのShapeMatchingにおける最適な回転成分の抽出
+        float cosTheta = p.x * q.x + p.y * q.y;
+        float sinTheta = p.y * q.x - p.x * q.y;
+        
+        col0 += float2(cosTheta, sinTheta);
+        col1 += float2(-sinTheta, cosTheta);
+    }
+
+    // 行列の正規化
+    float sqrLen = col0.x * col0.x + col0.y * col0.y;
+    
+    // sqrLen が 1e-9f 以上なら 1.0, それ未満(潰れている)なら 0.0 を返す
+    float validMask = step(1e-9f, sqrLen); 
+
+    // GPU専用の超高速命令(rsqrt)を使用し、ゼロ除算回避のため微小値を足す
+    float invU = rsqrt(sqrLen + 1e-9f) * validMask;
+
+    // validMask が 0 の場合、行列成分はすべて 0 になる。
+    // その場合 (1.0f - validMask) が 1.0 になるため、対角成分に足して「単位行列」を作る
+    float diag = 1.0f - validMask;
+
+    // HLSLの float2x2(m00, m01, m10, m11) 初期化を明確にし、意図しない転置を防ぐ
+    float2x2 mtx = float2x2(
+        col0.x * invU + diag,  col1.x * invU,
+        col0.y * invU,         col1.y * invU + diag
+    );
+
+    // パーティクルの位置を修正して書き込み
+    for (int k = 0; k < count; k++)
+    {
+        int globalPID = _ShapeMatchPoints[start + k].index;
+        int localPID = globalPID - objPOffset;
+        // 共有メモリから読み込む
+        float2 p = shared_P[localPID];
+        float2 q = _ShapeMatchPoints[start + k].restPosition;
+        
+        float2 target = mul(mtx, q) + currCenter;
+
+        _Corrections[start + k] = (target - p) * _K; 
+    }
+}
+
+[numthreads(64, 1, 1)]
+void CS_ApplyDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    Helper helper = _Helpers[id];
+    int start = helper.start;
+    int count = helper.count;
+
+    if (count <= 0) return;
+
+    float2 corrSum = float2(0, 0);
+
+    for (int i = 0; i < count; i++)
+    {
+        int cID = _References[start + i];
+        corrSum += _Corrections[cID];
+    }
+
+    _Particles[id].p += corrSum * (1.0 / count);
+}

@@ -1,0 +1,39 @@
+#pragma kernel ResetBlendShape;
+#pragma kernel ApplyBlendShape;
+#pragma kernel ApplyBone;
+
+StructuredBuffer<float3> LocalVertices;
+StructuredBuffer<float3> BlendShapeDeltas;
+RWStructuredBuffer<float3> BlendShapeResults;
+RWStructuredBuffer<float3> WorldVertices;
+
+uint _NumVertices;
+float _BlendShapeWeight;
+float4x4 _BoneMatrix;
+
+[numthreads(64, 1, 1)]
+void ResetBlendShape (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumVertices) return;
+    
+    BlendShapeResults[id] = float3(0, 0, 0);
+}
+
+[numthreads(64, 1, 1)]
+void ApplyBlendShape (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumVertices) return;
+
+    BlendShapeResults[id] += BlendShapeDeltas[id] * _BlendShapeWeight;
+}
+
+[numthreads(64, 1, 1)]
+void ApplyBone (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumVertices) return;
+
+    float3 localPos = LocalVertices[id] + BlendShapeResults[id];
+
+    // ローカル座標に現在のボーンの行列をかけて、ワールド座標を計算する
+    WorldVertices[id] = mul(_BoneMatrix, float4(localPos.xyz, 1)).xyz;
+}

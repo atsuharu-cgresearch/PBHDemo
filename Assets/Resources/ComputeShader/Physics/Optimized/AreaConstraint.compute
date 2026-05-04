@@ -1,0 +1,95 @@
+#pragma kernel CS_CalcDelta
+#pragma kernel CS_ApplyDelta
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+struct Cluster
+{
+    float restArea;
+    int start;
+};
+
+struct Helper
+{
+    int start;
+    int count;
+};
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<Cluster> _Clusters;
+StructuredBuffer<int> _Indices;
+RWStructuredBuffer<float2> _Corrections;
+StructuredBuffer<int> _References;
+StructuredBuffer<Helper> _Helpers;
+
+uint _NumParticles;
+uint _NumConstraints;
+float _K;
+
+float Cross2D(float2 v0, float2 v1)
+{
+    return v0.x * v1.y - v0.y * v1.x;
+}
+
+[numthreads(64, 1, 1)]
+void CS_CalcDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumConstraints) return;
+
+    Cluster cluster = _Clusters[id];
+    float restArea = cluster.restArea;
+
+    // ダミーの場合は面積が0なのでここで終了させる
+    if (restArea < 1e-9) return;
+    
+    int cID0 = cluster.start;
+    int cID1 = cID0 + 1;
+    int cID2 = cID0 + 2;
+
+    float2 p0 = _Particles[_Indices[cID0]].p;
+    float2 p1 = _Particles[_Indices[cID1]].p;
+    float2 p2 = _Particles[_Indices[cID2]].p;
+
+    float signedArea = 0.5f * Cross2D(p1 - p0, p2 - p0);
+    float currentArea = abs(signedArea);
+    float C = currentArea - restArea;
+
+    // 勾配の計算
+    float2 grad0 = -0.5f * float2(p1.y - p2.y, p2.x - p1.x);
+    float2 grad1 = -0.5f * float2(p2.y - p0.y, p0.x - p2.x);
+    float2 grad2 = -0.5f * float2(p0.y - p1.y, p1.x - p0.x);
+
+    float s = dot(grad0, grad0) + dot(grad1, grad1) + dot(grad2, grad2);
+    
+    float validMask = step(0.0f, signedArea);
+    
+    float lambda = (C * validMask * _K) / (s + 1e-9f);
+
+    // 修正ベクトルの計算と一括書き込み
+    _Corrections[cID0] = lambda * grad0;
+    _Corrections[cID1] = lambda * grad1;
+    _Corrections[cID2] = lambda * grad2;
+}
+
+[numthreads(64, 1, 1)]
+void CS_ApplyDelta (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    Helper helper = _Helpers[id];
+    int start = helper.start;
+    int count = helper.count;
+
+    if (count <= 0) return;
+
+    float2 corrSum = float2(0, 0);
+
+    // 
+    for (int i = 0; i < count; i++)
+    {
+        int cID = _References[start + i];
+        corrSum += _Corrections[cID];
+    }
+    
+    _Particles[id].p += corrSum * (1.0f / count);
+}

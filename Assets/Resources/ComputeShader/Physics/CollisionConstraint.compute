@@ -1,0 +1,93 @@
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<int> _References;
+Texture2DArray<float4> _SDFArray;
+SamplerState sampler_SDFArray;
+StructuredBuffer<float4> _Transforms; // posU, posV,  angle, scale
+
+uint _NumParticles;
+float _K;
+uint _TexSize;
+
+float2 WorldToLocal(float2 pWorld, float2 pos, float scale, float angle)
+{
+    float2 p = pWorld - pos;
+
+    float c = cos(angle);
+    float s = sin(angle);
+
+    float2 pRot;
+    pRot.x =  c * p.x + s * p.y;
+    pRot.y = -s * p.x + c * p.y;
+
+    return pRot / scale;
+}
+
+float2 LocalToWorld(float2 pLocal, float2 pos, float scale, float angle)
+{
+    float2 p = pLocal * scale;
+
+    float c = cos(angle);
+    float s = sin(angle);
+
+    float2 pRot;
+    pRot.x =  c * p.x - s * p.y;
+    pRot.y =  s * p.x + c * p.y;
+
+    return pRot + pos;
+}
+
+float2 LocalDirToWorld(float2 dirLocal, float scale, float angle)
+{
+    float2 d = dirLocal * scale;
+
+    float c = cos(angle);
+    float s = sin(angle);
+
+    float2 dRot;
+    dRot.x =  c * d.x - s * d.y;
+    dRot.y =  s * d.x + c * d.y;
+
+    return dRot;
+}
+
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    float2 p = _Particles[id].p;
+
+    int reference = _References[id];
+
+    // このローカル座標系の原点はテクスチャの中心であることに注意
+    float2 localPos = _Transforms[reference].xy;
+    float locaAngle = _Transforms[reference].z;
+    float localScale = _Transforms[reference].w;
+
+    // SDFの座標系に変換
+    float2 pLocal = WorldToLocal(p, localPos, localScale, locaAngle);
+
+    // テクスチャ上に強制移動
+    pLocal.x = clamp(pLocal.x, -0.5 + 1e-6, 0.5 - 1e-6);
+    pLocal.y = clamp(pLocal.y, -0.5 + 1e-6, 0.5 - 1e-6);
+
+    // 画素値を取得
+    float2 uv = float2(pLocal.x + 0.5, pLocal.y + 0.5);
+    float2 samplePix = int2(floor(uv.x * _TexSize), floor(uv.y * _TexSize));
+    // int2 samplePix = int2(floor(uv.x * _TexSize), floor((1.0 - uv.y) * _TexSize));
+    float4 color = _SDFArray[int3(samplePix.xy, reference)];
+    // float4 color = _SDFArray.SampleLevel(sampler_SDFArray, float3(uv.x, 1.0 - uv.y, reference), 0);
+
+    // 壁の内側の場合は終了
+    if (color.a < 0.5) return;
+    float2 corr = (color.xy - float2(0.5, 0.5)) * 2.0;
+
+    // 修正ベクトルをワールド座標系に変換
+    float2 corrWorld = LocalDirToWorld(corr, localScale, locaAngle);
+
+    _Particles[id].p += corrWorld * _K;
+}

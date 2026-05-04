@@ -1,0 +1,37 @@
+#pragma kernel CS_Main
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+StructuredBuffer<float2> _LocalPositions;
+StructuredBuffer<int> _References;
+StructuredBuffer<float4> _Offsets;
+
+uint _NumParticles;
+float _K;
+float _Dt;
+
+// パーティクルを目標の位置に向かって移動させる（外力ベース）
+[numthreads(64, 1, 1)]
+void CS_Main (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    ParticleData pData = _Particles[id];
+    float2 localPos = _LocalPositions[id];
+    
+    int reference = _References[id];
+    float4 offset = _Offsets[reference];
+
+    float c = cos(offset.z);
+    float s = sin(offset.z);
+    
+    float2 p = localPos * offset.w;
+    float2 targetPos = float2(c * p.x - s * p.y, s * p.x + c * p.y) + offset.xy;
+
+    float2 dir = targetPos - pData.p;
+
+    pData.v += dir * (_K * _Dt);
+    
+    _Particles[id] = pData;
+}

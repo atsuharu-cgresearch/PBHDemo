@@ -1,0 +1,48 @@
+#pragma kernel GenMap
+
+StructuredBuffer<float2> UVs;
+StructuredBuffer<uint> Triangles;
+RWTexture2D<float4> UVMap;
+
+uint _TexSize;
+uint _NumTriangles;
+
+// 2Dにおける点Pが三角形(a, b, c)の内部にあるか判定する関数
+bool IsPointInTriangle(float2 p, float2 a, float2 b, float2 c)
+{
+    // 各辺ベクトルと、頂点から点Pへのベクトルの外積（Z成分）を計算
+    float c0 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    float c1 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+    float c2 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+
+    // すべての符号が一致していれば内部
+    return (c0 >= 0 && c1 >= 0 && c2 >= 0) || (c0 <= 0 && c1 <= 0 && c2 <= 0);
+}
+
+[numthreads(8, 8, 1)]
+void GenMap (uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= _TexSize || id.y >= _TexSize) return;
+
+    // 現在のピクセルの中心座標をUV空間(0~1)に変換
+    float2 p = (float2(id.xy) + 0.5f) / (float)_TexSize;
+
+    float4 resultColor = float4(0, 0, 0, 0); // デフォルトは黒
+
+    // 全三角形を探索して判定
+    for (uint i = 0; i < _NumTriangles; i++)
+    {
+        float2 v0 = UVs[Triangles[i * 3 + 0]];
+        float2 v1 = UVs[Triangles[i * 3 + 1]];
+        float2 v2 = UVs[Triangles[i * 3 + 2]];
+
+        if (IsPointInTriangle(p, v0, v1, v2))
+        {
+            // 内部なら白く塗りつぶしてループを抜ける
+            resultColor = float4(1, 1, 1, 1);
+            break;
+        }
+    }
+
+    UVMap[id.xy] = resultColor;
+}

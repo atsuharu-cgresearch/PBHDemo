@@ -1,0 +1,39 @@
+#pragma kernel CS_Predict
+#pragma kernel CS_Update
+
+#include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
+
+RWStructuredBuffer<ParticleData> _Particles;
+
+uint _NumParticles;
+float _Dt;
+float _Damping;
+float2 _Gravity;
+
+[numthreads(64, 1, 1)]
+void CS_Predict (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    ParticleData pData = _Particles[id];
+
+    // 外力と減衰を速度に適用
+    pData.v = (pData.v + _Gravity * _Dt) * _Damping;
+
+    // 現在の速度を使って位置を更新
+    pData.p = pData.x + pData.v * _Dt;
+
+    _Particles[id] = pData;
+}
+
+[numthreads(64, 1, 1)]
+void CS_Update (uint id : SV_DispatchThreadID)
+{
+    if (id >= _NumParticles) return;
+
+    // 位置の修正結果を使って速度を更新
+	_Particles[id].v = (_Particles[id].p - _Particles[id].x) / _Dt;
+
+    // 修正後の位置を現在の位置にする
+	_Particles[id].x = _Particles[id].p;
+}
