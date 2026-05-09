@@ -1,6 +1,6 @@
 # Dynamic Eye Highlight Deformation via Soft-body Simulation in 3D Anime Character Rendering
 
-*[Atsuki Haruyama](https://github.com/atsuharu-cgresearch) and Yuki Morimoto, Kyushu University*
+*Atsuki Haruyama and Yuki Morimoto, Kyushu University*
 
 [ [Paper (SIGGRAPH Asia 2025 Posters)](https://dlnext.acm.org/doi/10.1145/3757374.3771483) ], [ [BibTeX](#citation) ], [ [Source Code](https://github.com/atsuharu-cgresearch/PBHDemo) ]
 
