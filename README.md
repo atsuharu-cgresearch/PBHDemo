@@ -5,6 +5,8 @@
 [ [Paper (SIGGRAPH Asia 2025 Posters)](https://dlnext.acm.org/doi/10.1145/3757374.3771483) ], [ [BibTeX](#citation) ], [ [Source Code](https://github.com/atsuharu-cgresearch/PBHDemo) ]
 
 ## Short Abstract
+本研究は、弾性体シミュレーションを用いてアニメ調3Dキャラクターの目のハイライトを動的に生成する手法を提案します。反射マッピングの計算過程に、Position Based Dynamics [Müller et al. 2007]のフレームワークを導入することで、手描きアニメ特有の表現と物理的に自然な挙動を、すべてシミュレーションの制約条件として解いて合成します。
+
 We propose a method for generating specular highlight shapes in anime-style 3D character eyes using soft body simulation. Our approach incorporates position-based dynamics (PBD) [Müller et al. 2007] into conventional reflection mapping, enabling a unified framework in which plausible reflections and the stylized expressions we aim to achieve are blended by solving them simultaneously as PBD constraints.
 
 ## WebGPU Demo
@@ -14,14 +16,12 @@ We propose a method for generating specular highlight shapes in anime-style 3D c
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](./LICENSE)
 
 GIFをクリックするとデモを実行できます。<br>
-推奨環境　PC版 Google Chrome・Microsoft Edge（113以降）<br>
-> **動作しない場合は、アドレスバーに `chrome://gpu/`（Edgeの場合は `edge://gpu/`）と入力し、
-> WebGL と WebGPU の項目が `Hardware accelerated` になっているかご確認ください。**
+推奨環境　PC版 Google Chrome・Microsoft Edge（113以降）<br><br>
+動作しない場合は、アドレスバーに `chrome://gpu/`（Edgeの場合は `edge://gpu/`）と入力し、
+WebGL と WebGPU の項目が `Hardware accelerated` になっているかご確認ください。
 
 ## About
-本リポジトリは、弾性体シミュレーション（Position Based Dynamics）を用いて、アニメ風3Dキャラクターモデルの目のハイライトを動的に生成する手法のUnity実装です。
-
-Compute Shaderを用いたGPGPUによる並列化を行い、WebGPU環境（ブラウザ上）でもリアルタイムかつ高速に動作するよう最適化されています。
+本リポジトリは、上記研究手法のUnity実装です。Compute Shaderを用いてGPGPU上でPBDシミュレーションを実装しており、WebGPU環境（ブラウザ上）でリアルタイムに動作します。
 
 ## Requirements
 本プロジェクトをローカルで実行・ビルドするためのシステム要件です。
@@ -47,20 +47,5 @@ git clone https://github.com/atsuharu-cgresearch/PBHDemo.git
 3. `Assets/Scenes/` から `Demo.scene`を開く
 4. エディタ上部の **Play ボタン** を押して動作確認する
 
-## Citation
-
-If you find this project useful for your research or work, please use the following BibTeX entry:
-
-```bibtex
-@inbook{10.1145/3757374.3771483,
-  author = {Haruyama, Atsuki and Morimoto, Yuki},
-  title = {Dynamic Eye Highlight Deformation via Soft-body Simulation in 3D Anime Character Rendering},
-  year = {2025},
-  isbn = {9798400721342},
-  publisher = {Association for Computing Machinery},
-  address = {New York, NY, USA},
-  url = {[https://doi.org/10.1145/3757374.3771483](https://doi.org/10.1145/3757374.3771483)},
-  booktitle = {Proceedings of the SIGGRAPH Asia 2025 Posters},
-  articleno = {64},
-  numpages = {2}
-}
+## Credits
+Character Model: RadDollV3 by @三丁目の魔界 ([BOOTH](https://booth.pm/ja/items/3741802))
