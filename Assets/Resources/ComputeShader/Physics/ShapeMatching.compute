@@ -4,7 +4,7 @@
 #include "Assets/Resources/hlsl/Struct_ParticleData.hlsl"
 
 // 1つのオブジェクトが持つ最大パーティクル数
-#define MAX_PARTICLES 128
+#define MAX_PARTICLES 256
 
 struct Cluster
 {

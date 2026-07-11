@@ -205,7 +205,7 @@ Transform:
   m_GameObject: {fileID: 1855695813}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: 0, y: 0, z: 0.316}
+  m_LocalPosition: {x: 0, y: 0, z: 0.33}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -240,10 +240,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4ac64be19ffaeee4884964ee4b0b8180, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  mesh: {fileID: -2432090755550338912, guid: 71283222c9b340b42af671b25fe8e8d9, type: 3}
+  mesh: {fileID: -2432090755550338912, guid: 83488389427090245aec94862d2ee05b, type: 3}
   vertexPrefab: {fileID: 9147190202320404672, guid: e9f9cce193699e843b1a365ff8946199, type: 3}
-  fileNameIncludeDotJson: snowman_002.json
-  objName: snowman_002
+  fileNameIncludeDotJson: original003.json
+  objName: original003
   drawAreaConst: 1
   drawingAreaKey: -1
   drawShapeMatch: 1

@@ -7,7 +7,7 @@ Shader "PBH/ParticleRendererMesh"
     SubShader
     {
         Tags { "RenderType"="Opaque" }
-        Cull Off
+        Cull front
         ZWrite Off
         ZTest Always
 
