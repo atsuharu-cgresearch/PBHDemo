@@ -6,6 +6,9 @@ using UnityEngine.Rendering;
 
 namespace PBH
 {
+    /// <summary>
+    /// 2値画像をもとにSDFを生成する（実際には境界からの距離ではなく、境界までの最短移動経路のxy成分をRGチャンネルに保存する）
+    /// </summary>
     public class SDFCalculator
     {
         private ComputeShader compute;

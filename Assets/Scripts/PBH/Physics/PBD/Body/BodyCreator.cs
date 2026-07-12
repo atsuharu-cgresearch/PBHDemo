@@ -44,6 +44,7 @@ namespace PBH
                 {
                     var def = objectDataList[i].def;
                     int pCount = def.particles.Length;
+                    Debug.Log("パーティクル数：" + pCount);
 
                     for (int j = 0; j < pCount; j++)
                     {
@@ -56,6 +57,7 @@ namespace PBH
                     if (def.areaConstIndices.Length > 0)
                     {
                         int clusterCount = def.areaConstIndices.Length / 3;
+                        Debug.Log("面積拘束クラスタ数：" + clusterCount);
                         
                         for (int j = 0; j < clusterCount; j++)
                         {
@@ -85,6 +87,7 @@ namespace PBH
                     if (def.shapeMatchIndices.Length > 0)
                     {
                         int clusterCount = def.shapeMatchCounts.Length;
+                        Debug.Log("ShapeMatchingクラスタ数：" + clusterCount);
 
                         int paddedClusterCount = Mathf.CeilToInt(clusterCount / (float)PADDING_MULTIPLE) * PADDING_MULTIPLE;
 

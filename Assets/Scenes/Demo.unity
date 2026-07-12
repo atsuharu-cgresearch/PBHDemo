@@ -632,7 +632,7 @@ MonoBehaviour:
           m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
-  m_IsOn: 0
+  m_IsOn: 1
 --- !u!1 &159740226
 GameObject:
   m_ObjectHideFlags: 0
@@ -7273,7 +7273,7 @@ MonoBehaviour:
   colliderRTSize: 128
   rendererRTSize: 512
   isActive: 1
-  fixedUpdate: 1
+  fixedUpdate: 0
 --- !u!4 &1612664345
 Transform:
   m_ObjectHideFlags: 0
